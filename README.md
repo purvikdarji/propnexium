@@ -2,7 +2,7 @@
 > Full-stack Real Estate Platform — Java Spring Boot Internship Project
 
 ![Java 17](https://img.shields.io/badge/Java-17-orange)
-![Spring Boot 3](https://img.shields.io/badge/Spring%20Boot-3.2-brightgreen)
+![Spring Boot 3](https://img.shields.io/badge/Spring%20Boot-3.4-brightgreen)
 ![MySQL 8](https://img.shields.io/badge/MySQL-8.0-blue)
 ![Docker](https://img.shields.io/badge/Docker-Multi--Stage-blueviolet)
 
