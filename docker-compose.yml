@@ -1,0 +1,53 @@
+version: '3.8'
+services:
+  db:
+    image: mysql:8.0
+    container_name: propnexium-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_USER: ${DB_USERNAME}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "3307:3306"
+    volumes:
+      - propnexium_db_data:/var/lib/mysql
+      - ./src/main/resources/propnexium_schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+  
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: propnexium-app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://db:3306/${DB_NAME}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Kolkata
+      SPRING_DATASOURCE_USERNAME: ${DB_USERNAME}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD}
+      SPRING_MAIL_HOST: ${MAIL_HOST}
+      SPRING_MAIL_PORT: ${MAIL_PORT}
+      SPRING_MAIL_USERNAME: ${MAIL_USERNAME}
+      SPRING_MAIL_PASSWORD: ${MAIL_PASSWORD}
+      PROPNEXIUM_BASE_URL: ${BASE_URL}
+      PROPNEXIUM_ADMIN_EMAIL: ${ADMIN_EMAIL}
+      FILE_UPLOAD_DIR: /app/uploads/properties
+    ports:
+      - "8080:8080"
+    volumes:
+      - propnexium_uploads:/app/uploads
+
+volumes:
+  propnexium_db_data:
+    driver: local
+  propnexium_uploads:
+    driver: local

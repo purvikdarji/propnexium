@@ -1,0 +1,1109 @@
+
+    
+        
+            <!DOCTYPE html>
+            <html lang="en">
+
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>PropNexium - Find Your Dream Property</title>
+            </head>
+
+            <body
+                style="margin: 0; font-family: 'Inter', system-ui, -apple-system, sans-serif; background-color: #f8fafc;">
+
+                
+  
+    
+      <nav style="background:#1a73e8; padding:0 30px; display:flex;
+            justify-content:space-between; align-items:center; height:60px;
+            position:sticky; top:0; z-index:999; box-shadow:0 2px 8px rgba(0,0,0,0.15);">
+
+        <!-- Brand -->
+        <a href="/" style="color:white; text-decoration:none; font-size:20px; font-weight:700;
+                     letter-spacing:-0.5px;">
+          🏠 PropNexium
+        </a>
+
+        <!-- Links -->
+        <div style="display:flex; align-items:center; gap:20px;">
+          <a href="/properties" style="color:rgba(255,255,255,0.9); text-decoration:none;
+                                  font-size:14px;">Properties</a>
+          <a href="/search" style="color:rgba(255,255,255,0.9); text-decoration:none;
+                                  font-size:14px;">🔍 Search</a>
+
+          
+
+          
+            <a href="/auth/login" style="color:white; text-decoration:none; border:1px solid rgba(255,255,255,0.6);
+                padding:7px 18px; border-radius:20px; font-size:14px;">
+              Sign In
+            </a>
+            <a href="/auth/register" style="background:white; color:#1a73e8; text-decoration:none;
+                padding:7px 18px; border-radius:20px; font-weight:600; font-size:14px;">
+              Register
+            </a>
+          
+        </div>
+      </nav>
+
+      
+    
+        
+
+            <!-- FIXED COMPARISON BAR (hidden until items added) -->
+            <div id="compareBar" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:1000;
+           background:#1e293b;padding:12px 24px;
+           box-shadow:0 -4px 20px rgba(0,0,0,0.3);">
+                <div style="max-width:1200px;margin:0 auto;
+              display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+
+                    <span style="color:#94a3b8;font-size:13px;font-weight:600;
+                 white-space:nowrap;">
+                        ⚖ Compare:
+                    </span>
+
+                    <!-- Property chips container -->
+                    <div id="compareChips" style="display:flex;gap:8px;flex:1;flex-wrap:wrap;"></div>
+
+                    <!-- Counter -->
+                    <span id="compareCounter" style="color:#94a3b8;font-size:13px;white-space:nowrap;">
+                        0/3
+                    </span>
+
+                    <!-- Compare Now button (disabled < 2) -->
+                    <button id="compareNowBtn" onclick="goCompare()" disabled style="padding:10px 24px;background:#1a73e8;color:white;
+             border:none;border-radius:6px;font-size:14px;font-weight:700;
+             cursor:pointer;white-space:nowrap;opacity:0.5;
+             transition:opacity 0.2s;">
+                        Compare Now &rarr;
+                    </button>
+
+                    <!-- Clear all -->
+                    <button onclick="clearCompare()" style="padding:10px 16px;background:transparent;color:#94a3b8;
+             border:1px solid #475569;border-radius:6px;font-size:13px;
+             cursor:pointer;">
+                        Clear All
+                    </button>
+                </div>
+            </div>
+
+            <script>
+                const MAX_COMPARE = 3;
+
+                // Load compare list from sessionStorage on page load
+                function getCompareList() {
+                    try {
+                        return JSON.parse(sessionStorage.getItem('propnexium_compare') || '[]');
+                    } catch (e) { return []; }
+                }
+
+                function saveCompareList(list) {
+                    sessionStorage.setItem('propnexium_compare', JSON.stringify(list));
+                }
+
+                function renderCompareBar() {
+                    const list = getCompareList();
+                    const bar = document.getElementById('compareBar');
+                    const chips = document.getElementById('compareChips');
+                    const counter = document.getElementById('compareCounter');
+                    const btn = document.getElementById('compareNowBtn');
+
+                    if (list.length === 0) {
+                        bar.style.display = 'none';
+                        return;
+                    }
+
+                    bar.style.display = 'flex';
+                    counter.textContent = list.length + '/3';
+
+                    // Enable button only at 2+
+                    btn.disabled = list.length < 2;
+                    btn.style.opacity = list.length >= 2 ? '1' : '0.5';
+                    btn.style.cursor = list.length >= 2 ? 'pointer' : 'not-allowed';
+
+                    // Render property chips
+                    chips.innerHTML = list.map(item =>
+                        '<div style="background:#334155;padding:6px 10px 6px 14px;' +
+                        'border-radius:20px;display:flex;align-items:center;gap:8px;">' +
+                        '<span style="color:white;font-size:13px;max-width:160px;' +
+                        'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' +
+                        item.title + '</span>' +
+                        '<button onclick="removeFromCompare(' + item.id + ')" ' +
+                        'style="background:transparent;border:none;color:#94a3b8;' +
+                        'font-size:16px;cursor:pointer;padding:0;line-height:1;">&#10005;</button>' +
+                        '</div>'
+                    ).join('');
+
+                    // Update all compare buttons on page
+                    updateAllCompareButtons(list);
+                }
+
+                function addToCompare(id, title, event) {
+                    if (event) event.preventDefault();
+                    const list = getCompareList();
+
+                    if (list.find(item => item.id === id)) {
+                        if (typeof showToast !== 'undefined') {
+                            showToast('Already in compare list', 'info');
+                        } else {
+                            alert('Already in compare list');
+                        }
+                        return;
+                    }
+                    if (list.length >= MAX_COMPARE) {
+                        if (typeof showToast !== 'undefined') {
+                            showToast('Maximum 3 properties can be compared', 'error');
+                        } else {
+                            alert('Maximum 3 properties can be compared');
+                        }
+                        return;
+                    }
+
+                    list.push({ id: id, title: title });
+                    saveCompareList(list);
+                    renderCompareBar();
+
+                    // Visual feedback on button
+                    const btn = document.getElementById('compareBtn_' + id);
+                    if (btn) {
+                        btn.style.background = '#1a73e8';
+                        btn.style.color = 'white';
+                        btn.textContent = '✓ Added';
+                    }
+
+                    if (typeof showToast !== 'undefined') {
+                        showToast('"' + title.substring(0, 30) + '..." added to compare', 'success');
+                    }
+                }
+
+                function removeFromCompare(id) {
+                    let list = getCompareList();
+                    list = list.filter(item => item.id !== id);
+                    saveCompareList(list);
+                    renderCompareBar();
+
+                    // Reset button
+                    const btn = document.getElementById('compareBtn_' + id);
+                    if (btn) {
+                        btn.style.background = 'white';
+                        btn.style.color = '#1a73e8';
+                        // Detail page or card? Need to set text accordingly but we can just use ⚖ Compare
+                        if (btn.textContent.includes('This Property')) {
+                            btn.innerHTML = '&#9878; Compare This Property';
+                        } else {
+                            btn.innerHTML = '&#9878; Compare';
+                        }
+                    }
+                }
+
+                function clearCompare() {
+                    saveCompareList([]);
+                    renderCompareBar();
+                }
+
+                function goCompare() {
+                    const list = getCompareList();
+                    if (list.length < 2) return;
+                    const ids = list.map(item => item.id).join(',');
+                    window.location = '/compare?ids=' + ids;
+                }
+
+                function updateAllCompareButtons(list) {
+                    const addedIds = list.map(item => item.id);
+                    document.querySelectorAll('[id^="compareBtn_"]').forEach(btn => {
+                        const id = parseInt(btn.id.split('_')[1]);
+                        if (addedIds.includes(id)) {
+                            btn.style.background = '#1a73e8';
+                            btn.style.color = 'white';
+                            btn.textContent = '✓ Added';
+                        } else {
+                            btn.style.background = 'white';
+                            btn.style.color = '#1a73e8';
+                            if (btn.textContent.includes('This Property')) {
+                                btn.innerHTML = '&#9878; Compare This Property';
+                            } else {
+                                btn.innerHTML = '&#9878; Compare';
+                            }
+                        }
+                    });
+                }
+
+                // Initialize bar on every page load
+                document.addEventListener('DOMContentLoaded', renderCompareBar);
+            </script>
+
+        <script>
+          function toggleUserMenu() {
+            const menu = document.getElementById('userMenu');
+            menu.style.display = (menu.style.display === 'none' || menu.style.display === '')
+              ? 'block' : 'none';
+          }
+          document.addEventListener('click', function (e) {
+            const wrapper = document.getElementById('userMenuWrapper');
+            if (wrapper && !wrapper.contains(e.target)) {
+              document.getElementById('userMenu').style.display = 'none';
+            }
+          });
+        </script>
+
+        <!-- ═══════════════ NOTIFICATION POLLING JS ═══════════════ -->
+        <script>
+        (function() {
+          // ── Helpers ──────────────────────────────────────────────
+          function getCsrf() {
+            const m = document.querySelector('meta[name="_csrf"]');
+            return m ? m.getAttribute('content') : '';
+          }
+
+          function updateBadge(count) {
+            const badge = document.getElementById('notificationBadge');
+            if (!badge) return;
+            if (count > 0) {
+              badge.style.display = 'flex';
+              badge.textContent = count > 99 ? '99+' : count;
+            } else {
+              badge.style.display = 'none';
+            }
+          }
+
+          // ── Poll unread count ─────────────────────────────────────
+          function pollUnreadCount() {
+            fetch('/api/v1/notifications/unread-count', { credentials: 'same-origin' })
+              .then(function(r) { return r.ok ? r.json() : null; })
+              .then(function(data) { if (data) updateBadge(data.count); })
+              .catch(function() {});
+          }
+
+          // ── Toggle dropdown ───────────────────────────────────────
+          window.toggleNotificationDropdown = function(e) {
+            if (e) e.stopPropagation();
+            const dd = document.getElementById('notificationDropdown');
+            if (!dd) return;
+            const visible = dd.style.display === 'block';
+            dd.style.display = visible ? 'none' : 'block';
+            if (!visible) loadRecentNotifications();
+          };
+
+          // ── Load recent ───────────────────────────────────────────
+          function loadRecentNotifications() {
+            fetch('/api/v1/notifications/recent', { credentials: 'same-origin' })
+              .then(function(r) { return r.json(); })
+              .then(function(data) {
+                const list = document.getElementById('notificationList');
+                if (!list) return;
+                if (!data.data || !data.data.length) {
+                  list.innerHTML = '<div style="padding:24px;text-align:center;color:#94a3b8;font-size:13px;">🔔 No notifications yet</div>';
+                  return;
+                }
+                list.innerHTML = data.data.map(function(n) {
+                  return '<div id="notif_' + n.id + '" ' +
+                    'style="padding:12px 16px;border-bottom:1px solid #f1f5f9;cursor:pointer;' +
+                    'background:' + (n.read ? 'white' : '#eff6ff') + ';" ' +
+                    'onclick="markNotifRead(' + n.id + ',\'' + (n.linkUrl || '#') + '\')">' +
+                    '<div style="font-size:13px;font-weight:' + (n.read ? '400' : '600') +
+                    ';color:#1e293b;margin-bottom:3px;">' + (n.title || '') + '</div>' +
+                    '<div style="font-size:12px;color:#94a3b8;">' + (n.message || '') + '</div>' +
+                    '</div>';
+                }).join('');
+              })
+              .catch(function() {});
+          }
+
+          // ── Mark single as read ───────────────────────────────────
+          window.markNotifRead = function(id, url) {
+            fetch('/api/v1/notifications/' + id + '/read', {
+              method: 'POST', credentials: 'same-origin',
+              headers: { 'X-CSRF-TOKEN': getCsrf(), 'Content-Type': 'application/json' }
+            }).then(function() {
+              const el = document.getElementById('notif_' + id);
+              if (el) el.style.background = 'white';
+              pollUnreadCount();
+              if (url && url !== '#') window.location = url;
+            }).catch(function() {});
+          };
+
+          // ── Mark all as read ──────────────────────────────────────
+          window.markAllRead = function() {
+            fetch('/api/v1/notifications/mark-all-read', {
+              method: 'POST', credentials: 'same-origin',
+              headers: { 'X-CSRF-TOKEN': getCsrf(), 'Content-Type': 'application/json' }
+            }).then(function() {
+              updateBadge(0);
+              loadRecentNotifications();
+              const dd = document.getElementById('notificationDropdown');
+              if (dd) dd.style.display = 'none';
+            }).catch(function() {});
+          };
+
+          // ── Close on outside click ────────────────────────────────
+          document.addEventListener('click', function(e) {
+            const wrapper = document.getElementById('notifWrapper');
+            const dd = document.getElementById('notificationDropdown');
+            if (wrapper && dd && !wrapper.contains(e.target)) {
+              dd.style.display = 'none';
+            }
+          });
+
+          // ── Start polling ─────────────────────────────────────────
+          pollUnreadCount();
+          setInterval(pollUnreadCount, 30000);
+        })();
+        </script>
+
+                    <!-- HERO SECTION -->
+                    <div style="background:linear-gradient(135deg, #0D47A1 0%, #1A73E8 50%, #42A5F5 100%);
+                padding:80px 20px;text-align:center;position:relative;overflow:hidden;">
+                        <!-- Diagonal pattern overlay -->
+                        <div style="position:absolute;inset:0;opacity:0.05;
+                  background:repeating-linear-gradient(
+                    45deg, white, white 2px, transparent 2px, transparent 20px);"></div>
+
+                        <div style="position:relative;z-index:1;max-width:800px;margin:0 auto;">
+                            <h1 style="color:white;font-size:48px;font-weight:800;
+                   margin:0 0 12px;line-height:1.2;">
+                                Find Your Dream Property
+                            </h1>
+                            <p style="color:rgba(255,255,255,0.85);font-size:18px;margin:0 0 36px;">
+                                India's Most Trusted Real Estate Platform
+                            </p>
+
+                            <!-- Search bar card -->
+                            <div style="background:white;border-radius:12px;padding:20px;
+                    box-shadow:0 8px 40px rgba(0,0,0,0.2);max-width:700px;margin:0 auto;">
+                                <!-- Buy / Rent toggle -->
+                                <div style="display:flex;gap:0;margin-bottom:16px;
+                      border:1px solid #e5e7eb;border-radius:6px;overflow:hidden;
+                      width:fit-content;">
+                                    <a href="/search?category=BUY" style="padding:8px 24px;background:#1a73e8;color:white;
+                      text-decoration:none;font-weight:600;font-size:14px;">Buy</a>
+                                    <a href="/search?category=RENT" style="padding:8px 24px;background:white;color:#374151;
+                      text-decoration:none;font-size:14px;
+                      border-left:1px solid #e5e7eb;">Rent</a>
+                                </div>
+
+                                <!-- Search inputs row -->
+                                <div style="display:flex;gap:10px;">
+                                    <!-- City dropdown -->
+                                    <select onchange="if(this.value) window.location='/search?city='+this.value" style="padding:12px;border:1px solid #e5e7eb;border-radius:6px;
+                     font-size:14px;background:white;min-width:140px;">
+                                        <option value="">All Cities</option>
+                                        
+                                            <option value="Delhi">Delhi</option>
+                                        
+                                            <option value="Bangalore">Bangalore</option>
+                                        
+                                            <option value="Mumbai">Mumbai</option>
+                                        
+                                            <option value="Ahmedabad">Ahmedabad</option>
+                                        
+                                            <option value="Hyderabad">Hyderabad</option>
+                                        
+                                            <option value="Jaipur">Jaipur</option>
+                                        
+                                            <option value="Noida">Noida</option>
+                                        
+                                    </select>
+
+                                    <!-- Keyword input with autocomplete -->
+                                    <div style="flex:1;position:relative;">
+                                        <input type="text" id="heroKeyword"
+                                            placeholder="Search by keyword, property type..." autocomplete="off" style="width:100%;padding:12px;border:1px solid #e5e7eb;
+                       border-radius:6px;font-size:14px;box-sizing:border-box;" />
+                                        <div id="heroAutocomplete" style="display:none;position:absolute;top:100%;left:0;right:0;
+                          background:white;border:1px solid #e5e7eb;border-radius:6px;
+                          box-shadow:0 4px 12px rgba(0,0,0,0.1);z-index:100;"></div>
+                                    </div>
+
+                                    <!-- Search button -->
+                                    <button onclick="heroSearch()" style="padding:12px 28px;background:#1a73e8;color:white;border:none;
+                     border-radius:6px;font-size:15px;font-weight:700;cursor:pointer;">
+                                        Search
+                                    </button>
+                                </div>
+
+                                <!-- City pill tags -->
+                                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">
+                                    
+                                        <a href="/search?city=Delhi" style="background:#f0f4ff;color:#1a73e8;padding:4px 12px;
+                        border-radius:20px;font-size:12px;text-decoration:none;
+                        font-weight:600;">
+                                            Delhi (4)
+                                        </a>
+                                    
+                                        <a href="/search?city=Bangalore" style="background:#f0f4ff;color:#1a73e8;padding:4px 12px;
+                        border-radius:20px;font-size:12px;text-decoration:none;
+                        font-weight:600;">
+                                            Bangalore (3)
+                                        </a>
+                                    
+                                        <a href="/search?city=Mumbai" style="background:#f0f4ff;color:#1a73e8;padding:4px 12px;
+                        border-radius:20px;font-size:12px;text-decoration:none;
+                        font-weight:600;">
+                                            Mumbai (3)
+                                        </a>
+                                    
+                                        <a href="/search?city=Ahmedabad" style="background:#f0f4ff;color:#1a73e8;padding:4px 12px;
+                        border-radius:20px;font-size:12px;text-decoration:none;
+                        font-weight:600;">
+                                            Ahmedabad (1)
+                                        </a>
+                                    
+                                        <a href="/search?city=Hyderabad" style="background:#f0f4ff;color:#1a73e8;padding:4px 12px;
+                        border-radius:20px;font-size:12px;text-decoration:none;
+                        font-weight:600;">
+                                            Hyderabad (1)
+                                        </a>
+                                    
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- DARK STATS BAR -->
+                    <div style="background:#1e293b;padding:20px 40px;">
+                        <div style="max-width:1200px;margin:0 auto;display:flex;
+                  justify-content:center;gap:60px;flex-wrap:wrap;">
+                            <div style="text-align:center;">
+                                <div style="font-size:28px;font-weight:800;color:#1a73e8;">14+</div>
+                                <div style="font-size:13px;color:#94a3b8;margin-top:2px;">Properties Listed</div>
+                            </div>
+                            <div style="text-align:center;">
+                                <div style="font-size:28px;font-weight:800;color:#22c55e;">7+</div>
+                                <div style="font-size:13px;color:#94a3b8;margin-top:2px;">Cities Covered</div>
+                            </div>
+                            <div style="text-align:center;">
+                                <div style="font-size:28px;font-weight:800;color:#f59e0b;">8+</div>
+                                <div style="font-size:13px;color:#94a3b8;margin-top:2px;">Verified Agents</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="max-width:1200px;margin:0 auto;padding:40px 20px;">
+
+                        <!-- PROPERTY TYPE QUICK FILTER GRID -->
+                        <h2 style="text-align:center;color:#1e293b;font-size:24px;margin:0 0 24px;">
+                            Browse by Property Type
+                        </h2>
+                        <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:12px;margin-bottom:48px;">
+                            
+                                <a href="/search?type=APARTMENT" style="background:white;border-radius:10px;padding:20px 10px;
+                    text-align:center;text-decoration:none;
+                    box-shadow:0 1px 8px rgba(0,0,0,0.06);
+                    transition:transform 0.2s,box-shadow 0.2s;display:block;" onmouseover="this.style.transform='translateY(-4px)';
+                          this.style.boxShadow='0 6px 20px rgba(26,115,232,0.15)'" onmouseout="this.style.transform='';this.style.boxShadow=
+                         '0 1px 8px rgba(0,0,0,0.06)'">
+                                    <div style="font-size:28px;margin-bottom:8px;">🏢</div>
+                                    <div style="font-size:13px;font-weight:600;color:#374151;">Apartment</div>
+                                </a>
+                            
+                                <a href="/search?type=HOUSE" style="background:white;border-radius:10px;padding:20px 10px;
+                    text-align:center;text-decoration:none;
+                    box-shadow:0 1px 8px rgba(0,0,0,0.06);
+                    transition:transform 0.2s,box-shadow 0.2s;display:block;" onmouseover="this.style.transform='translateY(-4px)';
+                          this.style.boxShadow='0 6px 20px rgba(26,115,232,0.15)'" onmouseout="this.style.transform='';this.style.boxShadow=
+                         '0 1px 8px rgba(0,0,0,0.06)'">
+                                    <div style="font-size:28px;margin-bottom:8px;">🏠</div>
+                                    <div style="font-size:13px;font-weight:600;color:#374151;">House</div>
+                                </a>
+                            
+                                <a href="/search?type=VILLA" style="background:white;border-radius:10px;padding:20px 10px;
+                    text-align:center;text-decoration:none;
+                    box-shadow:0 1px 8px rgba(0,0,0,0.06);
+                    transition:transform 0.2s,box-shadow 0.2s;display:block;" onmouseover="this.style.transform='translateY(-4px)';
+                          this.style.boxShadow='0 6px 20px rgba(26,115,232,0.15)'" onmouseout="this.style.transform='';this.style.boxShadow=
+                         '0 1px 8px rgba(0,0,0,0.06)'">
+                                    <div style="font-size:28px;margin-bottom:8px;">🏡</div>
+                                    <div style="font-size:13px;font-weight:600;color:#374151;">Villa</div>
+                                </a>
+                            
+                                <a href="/search?type=PLOT" style="background:white;border-radius:10px;padding:20px 10px;
+                    text-align:center;text-decoration:none;
+                    box-shadow:0 1px 8px rgba(0,0,0,0.06);
+                    transition:transform 0.2s,box-shadow 0.2s;display:block;" onmouseover="this.style.transform='translateY(-4px)';
+                          this.style.boxShadow='0 6px 20px rgba(26,115,232,0.15)'" onmouseout="this.style.transform='';this.style.boxShadow=
+                         '0 1px 8px rgba(0,0,0,0.06)'">
+                                    <div style="font-size:28px;margin-bottom:8px;">📐</div>
+                                    <div style="font-size:13px;font-weight:600;color:#374151;">Plot</div>
+                                </a>
+                            
+                                <a href="/search?type=COMMERCIAL" style="background:white;border-radius:10px;padding:20px 10px;
+                    text-align:center;text-decoration:none;
+                    box-shadow:0 1px 8px rgba(0,0,0,0.06);
+                    transition:transform 0.2s,box-shadow 0.2s;display:block;" onmouseover="this.style.transform='translateY(-4px)';
+                          this.style.boxShadow='0 6px 20px rgba(26,115,232,0.15)'" onmouseout="this.style.transform='';this.style.boxShadow=
+                         '0 1px 8px rgba(0,0,0,0.06)'">
+                                    <div style="font-size:28px;margin-bottom:8px;">🏪</div>
+                                    <div style="font-size:13px;font-weight:600;color:#374151;">Commercial</div>
+                                </a>
+                            
+                                <a href="/search?type=STUDIO" style="background:white;border-radius:10px;padding:20px 10px;
+                    text-align:center;text-decoration:none;
+                    box-shadow:0 1px 8px rgba(0,0,0,0.06);
+                    transition:transform 0.2s,box-shadow 0.2s;display:block;" onmouseover="this.style.transform='translateY(-4px)';
+                          this.style.boxShadow='0 6px 20px rgba(26,115,232,0.15)'" onmouseout="this.style.transform='';this.style.boxShadow=
+                         '0 1px 8px rgba(0,0,0,0.06)'">
+                                    <div style="font-size:28px;margin-bottom:8px;">🛋️</div>
+                                    <div style="font-size:13px;font-weight:600;color:#374151;">Studio</div>
+                                </a>
+                            
+                                <a href="/search?type=PENTHOUSE" style="background:white;border-radius:10px;padding:20px 10px;
+                    text-align:center;text-decoration:none;
+                    box-shadow:0 1px 8px rgba(0,0,0,0.06);
+                    transition:transform 0.2s,box-shadow 0.2s;display:block;" onmouseover="this.style.transform='translateY(-4px)';
+                          this.style.boxShadow='0 6px 20px rgba(26,115,232,0.15)'" onmouseout="this.style.transform='';this.style.boxShadow=
+                         '0 1px 8px rgba(0,0,0,0.06)'">
+                                    <div style="font-size:28px;margin-bottom:8px;">🌆</div>
+                                    <div style="font-size:13px;font-weight:600;color:#374151;">Penthouse</div>
+                                </a>
+                            
+                        </div>
+
+                        <!-- FEATURED PROPERTIES -->
+                        <div style="display:flex;justify-content:space-between;align-items:center;
+                  margin-bottom:20px;">
+                            <h2 style="margin:0;color:#1e293b;font-size:22px;">✨ Featured Properties</h2>
+                            <a href="/search?featured=true"
+                                style="color:#1a73e8;text-decoration:none;font-size:14px;font-weight:600;">
+                                View All →
+                            </a>
+                        </div>
+                        <div style="display:grid;grid-template-columns:repeat(4,1fr);
+                  gap:18px;margin-bottom:48px;">
+                            
+                                
+    
+        
+
+            <div class="pcard">
+                <!-- Image -->
+                <div class="pcard-img">
+                    
+                        
+                        
+                            <div class="no-img">🏠</div>
+                        
+                    
+
+                    <!-- Badges -->
+                    <div class="badge-row">
+                        
+                            <span class="badge badge-featured">FEATURED</span>
+                        
+                        
+                            
+                                <span class="badge badge-buy">BUY</span>
+                            
+                            
+                        
+                    </div>
+
+                    <!-- Wishlist Button -->
+                    <button class="wish-btn" onclick="toggleWishlist(8, this)" title="Save property"
+                        data-id="8">🤍</button>
+                </div>
+
+                <!-- Card Body -->
+                <div class="pcard-body">
+                    <div class="pcard-title" title="Penthouse with Sky Deck – Indiranagar">Penthouse with Sky Deck – Indiranagar</div>
+
+                    <div class="pcard-price">
+                        ₹
+                        55,000,000
+                        
+                    </div>
+
+                    <div class="pcard-loc">
+                        📍 
+                        Bangalore
+                    </div>
+
+                    <div class="pcard-meta">
+                        <span>🛏 4 BHK</span>
+                        
+                        <span>🚿 5</span>
+                        
+                        
+                            <span>📐
+                                3,500 sqft
+                            </span>
+                        
+                    </div>
+
+                    <div class="pcard-foot" style="flex-wrap:wrap;">
+                        <span class="type-chip">PENTHOUSE</span>
+                        <a href="/properties/8" class="btn-view">View &rarr;</a>
+
+                        <button onclick="addToCompare(8, 'Penthouse with Sky Deck – Indiranagar', event)" id="compareBtn_8" style="width:100%;padding:9px;background:white;
+                                 color:#1a73e8;border:1.5px solid #1a73e8;border-radius:6px;
+                                 font-size:13px;font-weight:600;cursor:pointer;margin-top:6px;
+                                 transition:background 0.2s,color 0.2s;">
+                            &#9878; Compare
+                        </button>
+                    </div>
+                </div>
+            </div>
+                            
+                                
+    
+        
+
+            <div class="pcard">
+                <!-- Image -->
+                <div class="pcard-img">
+                    
+                        
+                        
+                            <div class="no-img">🏠</div>
+                        
+                    
+
+                    <!-- Badges -->
+                    <div class="badge-row">
+                        
+                            <span class="badge badge-featured">FEATURED</span>
+                        
+                        
+                            
+                                <span class="badge badge-buy">BUY</span>
+                            
+                            
+                        
+                    </div>
+
+                    <!-- Wishlist Button -->
+                    <button class="wish-btn" onclick="toggleWishlist(6, this)" title="Save property"
+                        data-id="6">🤍</button>
+                </div>
+
+                <!-- Card Body -->
+                <div class="pcard-body">
+                    <div class="pcard-title" title="Modern 3BHK Villa – Whitefield Bangalore">Modern 3BHK Villa – Whitefield Bangalore</div>
+
+                    <div class="pcard-price">
+                        ₹
+                        22,000,000
+                        
+                    </div>
+
+                    <div class="pcard-loc">
+                        📍 
+                        Bangalore
+                    </div>
+
+                    <div class="pcard-meta">
+                        <span>🛏 3 BHK</span>
+                        
+                        <span>🚿 4</span>
+                        
+                        
+                            <span>📐
+                                2,200 sqft
+                            </span>
+                        
+                    </div>
+
+                    <div class="pcard-foot" style="flex-wrap:wrap;">
+                        <span class="type-chip">VILLA</span>
+                        <a href="/properties/6" class="btn-view">View &rarr;</a>
+
+                        <button onclick="addToCompare(6, 'Modern 3BHK Villa – Whitefield Bangalore', event)" id="compareBtn_6" style="width:100%;padding:9px;background:white;
+                                 color:#1a73e8;border:1.5px solid #1a73e8;border-radius:6px;
+                                 font-size:13px;font-weight:600;cursor:pointer;margin-top:6px;
+                                 transition:background 0.2s,color 0.2s;">
+                            &#9878; Compare
+                        </button>
+                    </div>
+                </div>
+            </div>
+                            
+                                
+    
+        
+
+            <div class="pcard">
+                <!-- Image -->
+                <div class="pcard-img">
+                    
+                        
+                        
+                            <div class="no-img">🏠</div>
+                        
+                    
+
+                    <!-- Badges -->
+                    <div class="badge-row">
+                        
+                            <span class="badge badge-featured">FEATURED</span>
+                        
+                        
+                            
+                                <span class="badge badge-buy">BUY</span>
+                            
+                            
+                        
+                    </div>
+
+                    <!-- Wishlist Button -->
+                    <button class="wish-btn" onclick="toggleWishlist(3, this)" title="Save property"
+                        data-id="3">🤍</button>
+                </div>
+
+                <!-- Card Body -->
+                <div class="pcard-body">
+                    <div class="pcard-title" title="Spacious 4BHK Independent House – Vasant Kunj">Spacious 4BHK Independent House – Vasant Kunj</div>
+
+                    <div class="pcard-price">
+                        ₹
+                        32,000,000
+                        
+                    </div>
+
+                    <div class="pcard-loc">
+                        📍 
+                        Delhi
+                    </div>
+
+                    <div class="pcard-meta">
+                        <span>🛏 4 BHK</span>
+                        
+                        <span>🚿 4</span>
+                        
+                        
+                            <span>📐
+                                2,800 sqft
+                            </span>
+                        
+                    </div>
+
+                    <div class="pcard-foot" style="flex-wrap:wrap;">
+                        <span class="type-chip">HOUSE</span>
+                        <a href="/properties/3" class="btn-view">View &rarr;</a>
+
+                        <button onclick="addToCompare(3, 'Spacious 4BHK Independent House – Vasant Kunj', event)" id="compareBtn_3" style="width:100%;padding:9px;background:white;
+                                 color:#1a73e8;border:1.5px solid #1a73e8;border-radius:6px;
+                                 font-size:13px;font-weight:600;cursor:pointer;margin-top:6px;
+                                 transition:background 0.2s,color 0.2s;">
+                            &#9878; Compare
+                        </button>
+                    </div>
+                </div>
+            </div>
+                            
+                                
+    
+        
+
+            <div class="pcard">
+                <!-- Image -->
+                <div class="pcard-img">
+                    
+                        
+                            <!-- Ensure you get the correct image URL -->
+                            <img src="/uploads/properties/1/0fd1b8f7-f7a8-4099-a89e-273cb72e9163.jpeg" alt="Luxury 3BHK Sea-View Apartment">
+                        
+                        
+                    
+
+                    <!-- Badges -->
+                    <div class="badge-row">
+                        
+                            <span class="badge badge-featured">FEATURED</span>
+                        
+                        
+                            
+                                <span class="badge badge-buy">BUY</span>
+                            
+                            
+                        
+                    </div>
+
+                    <!-- Wishlist Button -->
+                    <button class="wish-btn" onclick="toggleWishlist(1, this)" title="Save property"
+                        data-id="1">🤍</button>
+                </div>
+
+                <!-- Card Body -->
+                <div class="pcard-body">
+                    <div class="pcard-title" title="Luxury 3BHK Sea-View Apartment">Luxury 3BHK Sea-View Apartment</div>
+
+                    <div class="pcard-price">
+                        ₹
+                        20,000,000
+                        
+                    </div>
+
+                    <div class="pcard-loc">
+                        📍 Marine Drive, Mumbai, 
+                        Mumbai
+                    </div>
+
+                    <div class="pcard-meta">
+                        <span>🛏 3 BHK</span>
+                        
+                        <span>🚿 3</span>
+                        
+                        
+                            <span>📐
+                                1,850 sqft
+                            </span>
+                        
+                    </div>
+
+                    <div class="pcard-foot" style="flex-wrap:wrap;">
+                        <span class="type-chip">APARTMENT</span>
+                        <a href="/properties/1" class="btn-view">View &rarr;</a>
+
+                        <button onclick="addToCompare(1, 'Luxury 3BHK Sea-View Apartment', event)" id="compareBtn_1" style="width:100%;padding:9px;background:white;
+                                 color:#1a73e8;border:1.5px solid #1a73e8;border-radius:6px;
+                                 font-size:13px;font-weight:600;cursor:pointer;margin-top:6px;
+                                 transition:background 0.2s,color 0.2s;">
+                            &#9878; Compare
+                        </button>
+                    </div>
+                </div>
+            </div>
+                            
+                        </div>
+
+                        <!-- POPULAR CITIES -->
+                        <h2 style="text-align:center;color:#1e293b;font-size:22px;margin:0 0 20px;">
+                            🏙️ Popular Cities
+                        </h2>
+                        <div style="display:grid;grid-template-columns:repeat(4,1fr);
+                  gap:16px;margin-bottom:48px;">
+                            
+                                <a href="/search?city=Delhi" style="background:white;border-radius:10px;padding:20px;
+                    text-decoration:none;box-shadow:0 1px 8px rgba(0,0,0,0.06);
+                    border-left:4px solid #1a73e8;display:block;">
+                                    <div style="font-size:17px;font-weight:700;color:#1e293b;margin-bottom:4px;">
+                                        Delhi
+                                    </div>
+                                    <div style="font-size:13px;color:#64748b;">
+                                        4 properties
+                                    </div>
+                                    <div style="font-size:12px;color:#94a3b8;margin-top:4px;">
+                                        From ₹
+                                        35,000
+                                    </div>
+                                </a>
+                            
+                                <a href="/search?city=Bangalore" style="background:white;border-radius:10px;padding:20px;
+                    text-decoration:none;box-shadow:0 1px 8px rgba(0,0,0,0.06);
+                    border-left:4px solid #1a73e8;display:block;">
+                                    <div style="font-size:17px;font-weight:700;color:#1e293b;margin-bottom:4px;">
+                                        Bangalore
+                                    </div>
+                                    <div style="font-size:13px;color:#64748b;">
+                                        3 properties
+                                    </div>
+                                    <div style="font-size:12px;color:#94a3b8;margin-top:4px;">
+                                        From ₹
+                                        90,000
+                                    </div>
+                                </a>
+                            
+                                <a href="/search?city=Mumbai" style="background:white;border-radius:10px;padding:20px;
+                    text-decoration:none;box-shadow:0 1px 8px rgba(0,0,0,0.06);
+                    border-left:4px solid #1a73e8;display:block;">
+                                    <div style="font-size:17px;font-weight:700;color:#1e293b;margin-bottom:4px;">
+                                        Mumbai
+                                    </div>
+                                    <div style="font-size:13px;color:#64748b;">
+                                        3 properties
+                                    </div>
+                                    <div style="font-size:12px;color:#94a3b8;margin-top:4px;">
+                                        From ₹
+                                        25,000
+                                    </div>
+                                </a>
+                            
+                                <a href="/search?city=Ahmedabad" style="background:white;border-radius:10px;padding:20px;
+                    text-decoration:none;box-shadow:0 1px 8px rgba(0,0,0,0.06);
+                    border-left:4px solid #1a73e8;display:block;">
+                                    <div style="font-size:17px;font-weight:700;color:#1e293b;margin-bottom:4px;">
+                                        Ahmedabad
+                                    </div>
+                                    <div style="font-size:13px;color:#64748b;">
+                                        1 properties
+                                    </div>
+                                    <div style="font-size:12px;color:#94a3b8;margin-top:4px;">
+                                        From ₹
+                                        123,123
+                                    </div>
+                                </a>
+                            
+                                <a href="/search?city=Hyderabad" style="background:white;border-radius:10px;padding:20px;
+                    text-decoration:none;box-shadow:0 1px 8px rgba(0,0,0,0.06);
+                    border-left:4px solid #1a73e8;display:block;">
+                                    <div style="font-size:17px;font-weight:700;color:#1e293b;margin-bottom:4px;">
+                                        Hyderabad
+                                    </div>
+                                    <div style="font-size:13px;color:#64748b;">
+                                        1 properties
+                                    </div>
+                                    <div style="font-size:12px;color:#94a3b8;margin-top:4px;">
+                                        From ₹
+                                        123,456
+                                    </div>
+                                </a>
+                            
+                                <a href="/search?city=Jaipur" style="background:white;border-radius:10px;padding:20px;
+                    text-decoration:none;box-shadow:0 1px 8px rgba(0,0,0,0.06);
+                    border-left:4px solid #1a73e8;display:block;">
+                                    <div style="font-size:17px;font-weight:700;color:#1e293b;margin-bottom:4px;">
+                                        Jaipur
+                                    </div>
+                                    <div style="font-size:13px;color:#64748b;">
+                                        1 properties
+                                    </div>
+                                    <div style="font-size:12px;color:#94a3b8;margin-top:4px;">
+                                        From ₹
+                                        8,500,000
+                                    </div>
+                                </a>
+                            
+                                <a href="/search?city=Noida" style="background:white;border-radius:10px;padding:20px;
+                    text-decoration:none;box-shadow:0 1px 8px rgba(0,0,0,0.06);
+                    border-left:4px solid #1a73e8;display:block;">
+                                    <div style="font-size:17px;font-weight:700;color:#1e293b;margin-bottom:4px;">
+                                        Noida
+                                    </div>
+                                    <div style="font-size:13px;color:#64748b;">
+                                        1 properties
+                                    </div>
+                                    <div style="font-size:12px;color:#94a3b8;margin-top:4px;">
+                                        From ₹
+                                        18,000
+                                    </div>
+                                </a>
+                            
+                        </div>
+
+                        <!-- RECENTLY VIEWED (only if session has items) -->
+                        
+
+                        <!-- WHY PROPNEXIUM -->
+                        <h2 style="text-align:center;color:#1e293b;font-size:22px;margin:0 0 24px;">
+                            Why Choose PropNexium?
+                        </h2>
+                        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;
+                  margin-bottom:40px;">
+                            
+                                <div style="background:white;border-radius:10px;padding:24px;text-align:center;
+                      box-shadow:0 1px 8px rgba(0,0,0,0.06);">
+                                    <div style="font-size:32px;margin-bottom:12px;">🔒</div>
+                                    <h3 style="margin:0 0 8px;font-size:15px;color:#1e293b;">Verified Listings</h3>
+                                    <p style="margin:0;font-size:13px;color:#94a3b8;line-height:1.5;">
+                                        Every property verified by our team
+                                    </p>
+                                </div>
+                            
+                                <div style="background:white;border-radius:10px;padding:24px;text-align:center;
+                      box-shadow:0 1px 8px rgba(0,0,0,0.06);">
+                                    <div style="font-size:32px;margin-bottom:12px;">🤝</div>
+                                    <h3 style="margin:0 0 8px;font-size:15px;color:#1e293b;">Trusted Agents</h3>
+                                    <p style="margin:0;font-size:13px;color:#94a3b8;line-height:1.5;">
+                                        Rated and reviewed by real buyers
+                                    </p>
+                                </div>
+                            
+                                <div style="background:white;border-radius:10px;padding:24px;text-align:center;
+                      box-shadow:0 1px 8px rgba(0,0,0,0.06);">
+                                    <div style="font-size:32px;margin-bottom:12px;">📱</div>
+                                    <h3 style="margin:0 0 8px;font-size:15px;color:#1e293b;">Easy Contact</h3>
+                                    <p style="margin:0;font-size:13px;color:#94a3b8;line-height:1.5;">
+                                        Connect with agents instantly
+                                    </p>
+                                </div>
+                            
+                                <div style="background:white;border-radius:10px;padding:24px;text-align:center;
+                      box-shadow:0 1px 8px rgba(0,0,0,0.06);">
+                                    <div style="font-size:32px;margin-bottom:12px;">🏆</div>
+                                    <h3 style="margin:0 0 8px;font-size:15px;color:#1e293b;">Best Deals</h3>
+                                    <p style="margin:0;font-size:13px;color:#94a3b8;line-height:1.5;">
+                                        Compare and find the best value
+                                    </p>
+                                </div>
+                            
+                        </div>
+                    </div>
+
+                    <!-- FOOTER with Contact Us link -->
+                    <footer style="background:#1e293b;color:white;padding:40px 20px;">
+                        <div style="max-width:1200px;margin:0 auto;
+                  display:grid;grid-template-columns:repeat(4,1fr);gap:30px;">
+                            <div>
+                                <h3 style="margin:0 0 12px;color:white;">PropNexium</h3>
+                                <p style="color:#94a3b8;font-size:13px;line-height:1.6;margin:0 0 12px;">
+                                    India's trusted platform for buying, selling, and renting properties.
+                                </p>
+                            </div>
+                            <div>
+                                <h4 style="color:#94a3b8;font-size:12px;text-transform:uppercase;
+                     margin:0 0 12px;">Quick Links</h4>
+                                <div style="display:flex;flex-direction:column;gap:6px;">
+                                    <a href="/" style="color:#cbd5e1;text-decoration:none;font-size:13px;">Home</a>
+                                    <a href="/search"
+                                        style="color:#cbd5e1;text-decoration:none;font-size:13px;">Properties</a>
+                                    <a href="/contact"
+                                        style="color:#cbd5e1;text-decoration:none;font-size:13px;">Contact Us</a>
+                                </div>
+                            </div>
+                            <div>
+                                <h4 style="color:#94a3b8;font-size:12px;text-transform:uppercase;margin:0 0 12px;">
+                                    Contact
+                                </h4>
+                                <p style="color:#cbd5e1;font-size:13px;margin:0;line-height:2;">
+                                    📍 [Your Company Address]<br>
+                                    📞 +91-XXXXXXXXXX<br>
+                                    ✉️ info@propnexium.com
+                                </p>
+                            </div>
+                        </div>
+                        <div style="border-top:1px solid #334155;margin-top:30px;padding-top:20px;
+                  text-align:center;color:#64748b;font-size:12px;">
+                            © 2025 PropNexium. All rights reserved.
+                        </div>
+                    </footer>
+
+                    <!-- Hero search JS -->
+                    <script>
+                        let heroTimer;
+                        document.getElementById('heroKeyword').addEventListener('input', function () {
+                            clearTimeout(heroTimer);
+                            const q = this.value.trim();
+                            const dropdown = document.getElementById('heroAutocomplete');
+                            if (q.length < 2) { dropdown.style.display = 'none'; return; }
+                            heroTimer = setTimeout(() => {
+                                fetch('/api/v1/search/autocomplete?q=' + encodeURIComponent(q))
+                                    .then(r => r.json())
+                                    .then(data => {
+                                        if (!data.data || !data.data.length) {
+                                            dropdown.style.display = 'none'; return;
+                                        }
+                                        dropdown.innerHTML = data.data.map(s =>
+                                            '<div onclick="document.getElementById(\'heroKeyword\').value=\'' +
+                                            s.replace(/'/g, "\\'") + '\';document.getElementById(\'heroAutocomplete\').style.display=\'none\'"' +
+                                            ' style="padding:10px 14px;cursor:pointer;font-size:14px;color:#1e293b;' +
+                                            'border-bottom:1px solid #f1f5f9;">' + s + '</div>'
+                                        ).join('');
+                                        dropdown.style.display = 'block';
+                                    });
+                            }, 250);
+                        });
+
+                        function heroSearch() {
+                            const keyword = document.getElementById('heroKeyword').value.trim();
+                            if (keyword) window.location = '/search?keyword=' + encodeURIComponent(keyword);
+                            else window.location = '/search';
+                        }
+
+                        document.getElementById('heroKeyword').addEventListener('keydown', e => {
+                            if (e.key === 'Enter') heroSearch();
+                        });
+                    </script>
+            </body>
+
+            </html>
