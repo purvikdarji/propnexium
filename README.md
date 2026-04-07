@@ -39,7 +39,7 @@
 | Tier | Technology |
 |---|---|
 | Language | Java 17 |
-| Framework | Spring Boot 3.2 |
+| Framework | Spring Boot 3.4 |
 | Security | Spring Security |
 | Database | MySQL 8.0 |
 | ORM | Spring Data JPA / Hibernate |
