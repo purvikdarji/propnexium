@@ -132,6 +132,28 @@
             <version>5.2.3</version>
         </dependency>
 
+        <!-- ─── Apache Kafka ─────────────────────────────────────────────── -->
+        <!-- spring-kafka: KafkaTemplate, @KafkaListener, DLT, KafkaAdmin    -->
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka</artifactId>
+            <!-- version managed by spring-boot-starter-parent -->
+        </dependency>
+
+        <!-- spring-kafka-test: EmbeddedKafka for JUnit 5 integration tests  -->
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- H2 in-memory DB for integration tests (avoids needing real MySQL) -->
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>test</scope>
+        </dependency>
+
     </dependencies>
 
     <build>

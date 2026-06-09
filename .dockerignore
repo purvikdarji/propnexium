@@ -1,0 +1,58 @@
+# ─── Build artefacts ────────────────────────────────────────────────────────
+target/
+*.class
+
+# ─── IDE / Editor files ─────────────────────────────────────────────────────
+.idea/
+*.iml
+*.iws
+*.ipr
+.eclipse
+.settings/
+.project
+.classpath
+.factorypath
+*.swp
+*.swo
+.DS_Store
+
+# ─── Logs ────────────────────────────────────────────────────────────────────
+*.log
+logs/
+app.log
+boot.log
+boot_utf8.log
+build.log
+build_error.log
+build_error_utf8.log
+build_final.log
+clean-compile.log
+compile*.log
+compile*.txt
+debug.log
+errors.txt
+mvn_output.txt
+search-error.log
+server_output.log
+server_startup.log
+
+# ─── Local env / secrets ─────────────────────────────────────────────────────
+.env
+*.env
+
+# ─── Git ─────────────────────────────────────────────────────────────────────
+.git/
+.gitignore
+
+# ─── Documentation / scratch ─────────────────────────────────────────────────
+*.md
+assets/
+page.html
+response.html
+schema.txt
+cookie*.txt
+*.ps1
+populate_images.sql
+
+# ─── Uploaded files (mounted as volume in prod) ───────────────────────────────
+uploads/

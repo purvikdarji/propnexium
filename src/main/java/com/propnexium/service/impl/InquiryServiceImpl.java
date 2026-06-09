@@ -5,6 +5,8 @@ import com.propnexium.entity.Inquiry;
 import com.propnexium.entity.Property;
 import com.propnexium.entity.User;
 import com.propnexium.entity.enums.InquiryStatus;
+import com.propnexium.kafka.event.InquiryRepliedEvent;
+import com.propnexium.kafka.producer.KafkaEventPublisher;
 import com.propnexium.repository.InquiryRepository;
 import com.propnexium.repository.PropertyRepository;
 import com.propnexium.repository.UserRepository;
@@ -19,6 +21,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Service
@@ -31,6 +34,7 @@ public class InquiryServiceImpl implements InquiryService {
     private final UserRepository userRepository;
     private final NotificationService notificationService;
     private final EmailService emailService;
+    private final KafkaEventPublisher kafkaEventPublisher;
 
     @Override
     @Transactional
@@ -128,26 +132,45 @@ public class InquiryServiceImpl implements InquiryService {
         inquiry.setRepliedAt(java.time.LocalDateTime.now());
         Inquiry saved = inquiryRepository.save(inquiry);
 
-        // In-app notification for registered inquirers
-        if (inquiry.getUser() != null) {
-            try {
-                notificationService.createNotification(
-                        inquiry.getUser().getId(),
-                        "Agent Replied to Your Inquiry",
-                        "Your inquiry about \"" + inquiry.getProperty().getTitle() + "\" has been answered.",
-                        com.propnexium.entity.enums.NotificationType.INQUIRY,
-                        "/user/inquiries");
-            } catch (Exception ignored) {
-                /* never block the reply */ }
-        }
+        // Publish InquiryRepliedEvent to Kafka — the EmailNotificationConsumer
+        // sends the reply email and the NotificationConsumer creates the in-app
+        // notification. Both consumers retry independently on failure (DLT safety net).
+        boolean publishedToKafka = kafkaEventPublisher.publishInquiryReplied(
+                InquiryRepliedEvent.builder()
+                        .inquiryId(saved.getId())
+                        .propertyId(saved.getProperty().getId())
+                        .propertyTitle(saved.getProperty().getTitle())
+                        .inquirerName(saved.getInquirerName())
+                        .inquirerEmail(saved.getInquirerEmail())
+                        .inquirerUserId(inquiry.getUser() != null ? inquiry.getUser().getId() : null)
+                        .agentReply(replyText)
+                        .repliedAt(LocalDateTime.now())
+                        .build()
+        );
 
-        // Email notification
-        try {
-            if (emailService != null) {
-                emailService.sendAgentReplyToUser(saved);
+        if (!publishedToKafka) {
+            // Legacy fallback — in-app notification for registered inquirers
+            if (inquiry.getUser() != null) {
+                try {
+                    notificationService.createNotification(
+                            inquiry.getUser().getId(),
+                            "Agent Replied to Your Inquiry",
+                            "Your inquiry about \"" + inquiry.getProperty().getTitle() + "\" has been answered.",
+                            com.propnexium.entity.enums.NotificationType.INQUIRY,
+                            "/user/inquiries");
+                } catch (Exception ignored) {
+                    /* never block the reply */
+                }
             }
-        } catch (Exception ignored) {
-            /* never block the reply */ }
+            // Legacy email
+            try {
+                if (emailService != null) {
+                    emailService.sendAgentReplyToUser(saved);
+                }
+            } catch (Exception ignored) {
+                /* never block the reply */
+            }
+        }
 
         return saved;
     }

@@ -8,6 +8,8 @@ import com.propnexium.entity.enums.UserRole;
 import com.propnexium.exception.BusinessException;
 import com.propnexium.exception.DuplicateResourceException;
 import com.propnexium.exception.ResourceNotFoundException;
+import com.propnexium.kafka.event.UserRegisteredEvent;
+import com.propnexium.kafka.producer.KafkaEventPublisher;
 import com.propnexium.repository.AgentProfileRepository;
 import com.propnexium.repository.UserRepository;
 import com.propnexium.service.EmailService;
@@ -25,6 +27,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -37,6 +40,7 @@ public class UserServiceImpl implements UserService {
     private final PasswordEncoder passwordEncoder;
     private final AgentProfileRepository agentProfileRepository;
     private final EmailService emailService;
+    private final KafkaEventPublisher kafkaEventPublisher;
     @Lazy
     private final EmailVerificationService emailVerificationService;
 
@@ -82,11 +86,25 @@ public class UserServiceImpl implements UserService {
             agentProfileRepository.save(profile);
         }
 
-        // 6. Send welcome email asynchronously (non-blocking)
-        emailService.sendWelcomeEmail(saved);
+        // 6. Publish UserRegisteredEvent to Kafka (welcome email + verification
+        //    are handled by the EmailNotificationConsumer).
+        //    When kafka.topics.user-registered.enabled=false, publishUserRegistered()
+        //    returns false and we fall back to the existing @Async direct calls.
+        boolean publishedToKafka = kafkaEventPublisher.publishUserRegistered(
+                UserRegisteredEvent.builder()
+                        .userId(saved.getId())
+                        .name(saved.getName())
+                        .email(saved.getEmail())
+                        .role(saved.getRole().name())
+                        .registeredAt(LocalDateTime.now())
+                        .build()
+        );
 
-        // 7. Send email verification link asynchronously
-        emailVerificationService.sendVerificationEmail(saved);
+        if (!publishedToKafka) {
+            // Legacy fallback — used when Kafka flag is off
+            emailService.sendWelcomeEmail(saved);
+            emailVerificationService.sendVerificationEmail(saved);
+        }
 
         return saved;
     }

@@ -4,6 +4,9 @@ import com.propnexium.dto.request.BookingRequestDto;
 import com.propnexium.entity.Property;
 import com.propnexium.entity.PropertyBooking;
 import com.propnexium.entity.User;
+import com.propnexium.kafka.event.BookingCreatedEvent;
+import com.propnexium.kafka.event.BookingStatusChangedEvent;
+import com.propnexium.kafka.producer.KafkaEventPublisher;
 import com.propnexium.repository.BookingRepository;
 import com.propnexium.repository.PropertyRepository;
 import com.propnexium.repository.UserRepository;
@@ -19,6 +22,7 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -34,6 +38,7 @@ public class BookingServiceImpl implements BookingService {
     private final UserRepository userRepository;
     private final EmailService emailService;
     private final NotificationService notificationService;
+    private final KafkaEventPublisher kafkaEventPublisher;
 
     // Based on user requirements
     private static final List<String> ALL_SLOTS = Arrays.asList(
@@ -87,13 +92,32 @@ public class BookingServiceImpl implements BookingService {
         final String visitorName = dto.getVisitorName();
         final String visitDate = dto.getVisitDate().toString();
 
-        // Fire emails AFTER the transaction commits so the async thread
-        // can see the persisted booking in findByIdWithDetails().
+        // Fire emails / notifications AFTER the DB transaction commits.
+        // Kafka publish is inside afterCommit to guarantee the booking row is
+        // visible to consumers before they call emailService.sendBookingConfirmationEmail().
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
-                emailService.sendBookingConfirmationEmail(bookingId);
-                emailService.sendBookingAlertToAgent(bookingId);
+                BookingCreatedEvent kafkaEvent = BookingCreatedEvent.builder()
+                        .bookingId(bookingId)
+                        .propertyId(property.getId())
+                        .propertyTitle(propertyTitle)
+                        .agentId(agentId)
+                        .userId(user.getId())
+                        .visitorName(visitorName)
+                        .visitorEmail(dto.getVisitorEmail())
+                        .visitDate(dto.getVisitDate())
+                        .timeSlot(dto.getTimeSlot())
+                        .createdAt(LocalDateTime.now())
+                        .build();
+
+                boolean publishedToKafka = kafkaEventPublisher.publishBookingCreated(kafkaEvent);
+
+                if (!publishedToKafka) {
+                    // Legacy fallback when Kafka flag is off
+                    emailService.sendBookingConfirmationEmail(bookingId);
+                    emailService.sendBookingAlertToAgent(bookingId);
+                }
             }
         });
 
@@ -126,12 +150,30 @@ public class BookingServiceImpl implements BookingService {
         bookingRepository.saveAndFlush(booking);
         
         final Long bId = booking.getId();
-        
+
         // Notify user AFTER transaction commits
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
-                emailService.sendBookingStatusEmailToUser(bId, "Confirmed");
+                BookingStatusChangedEvent kafkaEvent = BookingStatusChangedEvent.builder()
+                        .bookingId(bId)
+                        .propertyId(booking.getProperty().getId())
+                        .propertyTitle(booking.getProperty().getTitle())
+                        .userId(booking.getUser().getId())
+                        .agentId(booking.getProperty().getAgent().getId())
+                        .initiatorId(booking.getProperty().getAgent().getId()) // agent confirmed
+                        .oldStatus("PENDING")
+                        .newStatus("CONFIRMED")
+                        .statusMessage("Confirmed")
+                        .agentNotes(agentNotes)
+                        .changedAt(LocalDateTime.now())
+                        .build();
+
+                boolean publishedToKafka = kafkaEventPublisher.publishBookingStatusChanged(kafkaEvent);
+
+                if (!publishedToKafka) {
+                    emailService.sendBookingStatusEmailToUser(bId, "Confirmed");
+                }
             }
         });
 
@@ -177,35 +219,71 @@ public class BookingServiceImpl implements BookingService {
         bookingRepository.saveAndFlush(booking);
 
         final Long bId = booking.getId();
+        final Long agentIdForCancel = booking.getProperty().getAgent().getId();
+        final Long userIdForCancel  = booking.getUser().getId();
 
-        // If the agent is the one cancelling, notify the user
-        if (booking.getProperty().getAgent().getId().equals(requesterId)) {
+        if (agentIdForCancel.equals(requesterId)) {
+            // Agent cancelled → notify user
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
-                    emailService.sendBookingStatusEmailToUser(bId, "Declined / Cancelled by Agent");
+                    BookingStatusChangedEvent kafkaEvent = BookingStatusChangedEvent.builder()
+                            .bookingId(bId)
+                            .propertyId(booking.getProperty().getId())
+                            .propertyTitle(booking.getProperty().getTitle())
+                            .userId(userIdForCancel)
+                            .agentId(agentIdForCancel)
+                            .initiatorId(agentIdForCancel) // agent cancelled
+                            .oldStatus("PENDING")
+                            .newStatus("CANCELLED")
+                            .statusMessage("Declined / Cancelled by Agent")
+                            .changedAt(LocalDateTime.now())
+                            .build();
+
+                    boolean publishedToKafka = kafkaEventPublisher.publishBookingStatusChanged(kafkaEvent);
+
+                    if (!publishedToKafka) {
+                        emailService.sendBookingStatusEmailToUser(bId, "Declined / Cancelled by Agent");
+                    }
                 }
             });
 
-            // In-app notification for user
+            // In-app notification for user (direct — independent of Kafka)
             notificationService.createNotification(
-                    booking.getUser().getId(),
+                    userIdForCancel,
                     "Site Visit Cancelled",
                     "Your visit request for '" + booking.getProperty().getTitle() + "' has been cancelled by the agent.",
                     NotificationType.BOOKING,
                     "/user/bookings"
             );
         } else {
-            // User is the one cancelling, notify the agent
+            // User cancelled → notify agent
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
-                    emailService.sendBookingCancellationAlertToAgent(bId);
+                    BookingStatusChangedEvent kafkaEvent = BookingStatusChangedEvent.builder()
+                            .bookingId(bId)
+                            .propertyId(booking.getProperty().getId())
+                            .propertyTitle(booking.getProperty().getTitle())
+                            .userId(userIdForCancel)
+                            .agentId(agentIdForCancel)
+                            .initiatorId(userIdForCancel) // user cancelled
+                            .oldStatus("PENDING")
+                            .newStatus("CANCELLED")
+                            .statusMessage("Cancelled by Visitor")
+                            .changedAt(LocalDateTime.now())
+                            .build();
+
+                    boolean publishedToKafka = kafkaEventPublisher.publishBookingStatusChanged(kafkaEvent);
+
+                    if (!publishedToKafka) {
+                        emailService.sendBookingCancellationAlertToAgent(bId);
+                    }
                 }
             });
-            
+
             notificationService.createNotification(
-                    booking.getProperty().getAgent().getId(),
+                    agentIdForCancel,
                     "Site Visit Cancelled by Visitor",
                     "The visit for '" + booking.getProperty().getTitle() + "' has been cancelled by the visitor.",
                     NotificationType.BOOKING,

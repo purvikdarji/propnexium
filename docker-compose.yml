@@ -1,5 +1,7 @@
 version: '3.8'
+
 services:
+  # ─── MySQL Database ────────────────────────────────────────────────────────
   db:
     image: mysql:8.0
     container_name: propnexium-db
@@ -20,7 +22,63 @@ services:
       timeout: 5s
       retries: 10
       start_period: 30s
-  
+
+  # ─── Apache Kafka (KRaft mode — no Zookeeper) ─────────────────────────────
+  # Uses the official Bitnami Kafka image which supports KRaft out of the box.
+  # KAFKA_CFG_NODE_ID=1 and KAFKA_CFG_PROCESS_ROLES=controller,broker make
+  # this a combined controller + broker (single-node KRaft cluster).
+  kafka:
+    image: bitnami/kafka:3.7
+    container_name: propnexium-kafka
+    restart: unless-stopped
+    ports:
+      # 9092 → internal Docker network (Spring app uses this)
+      # 29092 → exposed to host (for CLI tools / Kafka UI on host)
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      # KRaft settings
+      KAFKA_CFG_NODE_ID: 1
+      KAFKA_CFG_PROCESS_ROLES: controller,broker
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      # Listeners: INTERNAL for Docker network, EXTERNAL for host
+      KAFKA_CFG_LISTENERS: INTERNAL://:9092,CONTROLLER://:9093,EXTERNAL://:29092
+      KAFKA_CFG_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:29092
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: INTERNAL
+      # Topic defaults
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "false"   # Topics created by KafkaAdmin bean
+      KAFKA_CFG_DEFAULT_REPLICATION_FACTOR: 1        # 1 for local dev; set to 3 in prod
+      KAFKA_CFG_NUM_PARTITIONS: 3
+      # Performance / reliability
+      KAFKA_CFG_LOG_RETENTION_HOURS: 168             # 7 days
+      KAFKA_CFG_LOG_SEGMENT_BYTES: 1073741824        # 1 GB
+      ALLOW_PLAINTEXT_LISTENER: "yes"
+    volumes:
+      - propnexium_kafka_data:/bitnami/kafka
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  # ─── Kafka UI (Provectus) — browse topics, messages, consumer lag ─────────
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: propnexium-kafka-ui
+    restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8090:8080"          # Access at http://localhost:8090
+    environment:
+      KAFKA_CLUSTERS_0_NAME: propnexium-local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+
+  # ─── Spring Boot Application ───────────────────────────────────────────────
   app:
     build:
       context: .
@@ -29,6 +87,8 @@ services:
     restart: unless-stopped
     depends_on:
       db:
+        condition: service_healthy
+      kafka:
         condition: service_healthy
     environment:
       SPRING_DATASOURCE_URL: jdbc:mysql://db:3306/${DB_NAME}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Kolkata
@@ -41,6 +101,15 @@ services:
       PROPNEXIUM_BASE_URL: ${BASE_URL}
       PROPNEXIUM_ADMIN_EMAIL: ${ADMIN_EMAIL}
       FILE_UPLOAD_DIR: /app/uploads/properties
+      # Kafka — internal Docker hostname
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      # Per-topic feature flags (can be overridden per-environment)
+      KAFKA_TOPICS_USER_REGISTERED_ENABLED: ${KAFKA_TOPICS_USER_REGISTERED_ENABLED:-true}
+      KAFKA_TOPICS_PROPERTY_SUBMITTED_ENABLED: ${KAFKA_TOPICS_PROPERTY_SUBMITTED_ENABLED:-true}
+      KAFKA_TOPICS_PROPERTY_STATUS_CHANGED_ENABLED: ${KAFKA_TOPICS_PROPERTY_STATUS_CHANGED_ENABLED:-true}
+      KAFKA_TOPICS_BOOKING_CREATED_ENABLED: ${KAFKA_TOPICS_BOOKING_CREATED_ENABLED:-true}
+      KAFKA_TOPICS_BOOKING_STATUS_CHANGED_ENABLED: ${KAFKA_TOPICS_BOOKING_STATUS_CHANGED_ENABLED:-true}
+      KAFKA_TOPICS_INQUIRY_REPLIED_ENABLED: ${KAFKA_TOPICS_INQUIRY_REPLIED_ENABLED:-true}
     ports:
       - "8080:8080"
     volumes:
@@ -50,4 +119,6 @@ volumes:
   propnexium_db_data:
     driver: local
   propnexium_uploads:
+    driver: local
+  propnexium_kafka_data:
     driver: local

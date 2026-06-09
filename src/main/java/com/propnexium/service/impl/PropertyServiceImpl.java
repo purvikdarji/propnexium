@@ -5,6 +5,9 @@ import com.propnexium.entity.enums.PropertyCategory;
 import com.propnexium.entity.enums.PropertyStatus;
 import com.propnexium.entity.enums.PropertyType;
 import com.propnexium.exception.ResourceNotFoundException;
+import com.propnexium.kafka.event.PropertyStatusChangedEvent;
+import com.propnexium.kafka.event.PropertySubmittedEvent;
+import com.propnexium.kafka.producer.KafkaEventPublisher;
 import com.propnexium.repository.PropertyAmenitiesRepository;
 import com.propnexium.repository.PropertyRepository;
 import com.propnexium.repository.UserRepository;
@@ -23,6 +26,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import com.propnexium.event.PropertyApprovedEvent;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -39,6 +43,7 @@ public class PropertyServiceImpl implements PropertyService {
     private final NotificationService notificationService;
     private final PriceHistoryService priceHistoryService;
     private final ApplicationEventPublisher eventPublisher;
+    private final KafkaEventPublisher kafkaEventPublisher;
 
     // ─── City coordinate fallback ─────────────────────────────────────────────
     public static final Map<String, double[]> CITY_COORDINATES = Map.of(
@@ -148,9 +153,29 @@ public class PropertyServiceImpl implements PropertyService {
             p.setStatus(status);
             Property savedProperty = propertyRepository.save(p);
 
-            // Trigger alert event only if the property transitions TO AVAILABLE
-            if (status == PropertyStatus.AVAILABLE && wasNotAvailable) {
-                eventPublisher.publishEvent(new PropertyApprovedEvent(this, savedProperty));
+            // Build the Kafka event for every status change
+            PropertyStatusChangedEvent kafkaEvent = PropertyStatusChangedEvent.builder()
+                    .propertyId(savedProperty.getId())
+                    .agentId(savedProperty.getAgent().getId())
+                    .title(savedProperty.getTitle())
+                    .city(savedProperty.getCity())
+                    .type(savedProperty.getType() != null ? savedProperty.getType().name() : null)
+                    .category(savedProperty.getCategory() != null ? savedProperty.getCategory().name() : null)
+                    .price(savedProperty.getPrice())
+                    .oldStatus(p.getStatus() != null ? p.getStatus().name() : null)
+                    .newStatus(status.name())
+                    .changedAt(LocalDateTime.now())
+                    .build();
+
+            // Always publish to Kafka if the flag is on (handles both the
+            // saved-search fan-out AND agent notification in one message).
+            boolean publishedToKafka = kafkaEventPublisher.publishPropertyStatusChanged(kafkaEvent);
+
+            if (!publishedToKafka) {
+                // Legacy fallback: Spring ApplicationEvent for saved-search alerts
+                if (status == PropertyStatus.AVAILABLE && wasNotAvailable) {
+                    eventPublisher.publishEvent(new PropertyApprovedEvent(this, savedProperty));
+                }
             }
         });
     }
@@ -350,17 +375,31 @@ public class PropertyServiceImpl implements PropertyService {
                 .build();
         propertyAmenitiesRepository.save(amenities);
 
-        // Notify admin(s)
-        try {
-            userRepository.findByRole(com.propnexium.entity.enums.UserRole.ADMIN)
-                    .forEach(admin -> notificationService.createNotification(
-                            admin.getId(),
-                            "New Property Submitted for Review",
-                            "Agent " + agent.getName() + " submitted: " + dto.getTitle(),
-                            com.propnexium.entity.enums.NotificationType.SYSTEM,
-                            "/properties/" + saved.getId()));
-        } catch (Exception ignored) {
-            // Notification failure should never block property creation
+        // Notify admin via Kafka (NotificationConsumer handles the fan-out)
+        boolean publishedToKafka = kafkaEventPublisher.publishPropertySubmitted(
+                PropertySubmittedEvent.builder()
+                        .propertyId(saved.getId())
+                        .agentId(agent.getId())
+                        .agentName(agent.getName())
+                        .title(dto.getTitle())
+                        .city(dto.getCity())
+                        .submittedAt(LocalDateTime.now())
+                        .build()
+        );
+
+        if (!publishedToKafka) {
+            // Legacy fallback: direct admin notification
+            try {
+                userRepository.findByRole(com.propnexium.entity.enums.UserRole.ADMIN)
+                        .forEach(admin -> notificationService.createNotification(
+                                admin.getId(),
+                                "New Property Submitted for Review",
+                                "Agent " + agent.getName() + " submitted: " + dto.getTitle(),
+                                com.propnexium.entity.enums.NotificationType.SYSTEM,
+                                "/properties/" + saved.getId()));
+            } catch (Exception ignored) {
+                // Notification failure should never block property creation
+            }
         }
 
         return saved;
