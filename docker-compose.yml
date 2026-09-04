@@ -28,7 +28,7 @@ services:
   # KAFKA_CFG_NODE_ID=1 and KAFKA_CFG_PROCESS_ROLES=controller,broker make
   # this a combined controller + broker (single-node KRaft cluster).
   kafka:
-    image: bitnami/kafka:3.7
+    image: soldevelo/kafka:3.7
     container_name: propnexium-kafka
     restart: unless-stopped
     ports:
